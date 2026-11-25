@@ -103,7 +103,7 @@
   const qCount = x => Array.isArray(x.questions) ? x.questions.length : 0;
   const qType = q => (q && q.type === 'essay' ? 'essay' : 'mcq');
   const qCounts = x => { const a = Array.isArray(x.questions) ? x.questions : []; const e = a.filter(q => qType(q) === 'essay').length; return { mcq: a.length - e, essay: e }; };
-  function lessonCard(x) { return `<article class="lesson-card"><div class="card-top"><div class="card-icon">♫</div><div class="card-info"><h3>${esc(x.title)}</h3><p>${esc(x.description || 'محاضرة جديدة في طريق العلم والعمل.')}</p></div></div><div class="card-meta"><span>◷ ${x.created_at ? new Date(x.created_at).toLocaleDateString('ar-EG') : 'مضافة حديثًا'}</span>${x.pdf_url ? '<span>📄 ملف PDF</span>' : ''}${isSaved(x) ? '<span class="saved">⬇ محمّلة</span>' : ''}</div><div class="card-actions stack">${x.media_url || x.pdf_url ? `<button class="small-btn dark" data-view="${esc(x.id)}">🎧 استماع المحاضرة</button>` : '<div class="no-lec">لا توجد محاضرة لهذا العنوان، الأسئلة فقط في تبويب «الاختبارات»</div>'}</div></article>`; }
+  function lessonCard(x) { return `<article class="lesson-card"><div class="card-top"><div class="card-icon">♫</div><div class="card-info"><h3>${esc(x.title)}</h3><p>${esc(x.description || 'محاضرة جديدة في طريق العلم والعمل.')}</p></div></div><div class="card-meta"><span>◷ ${x.created_at ? new Date(x.created_at).toLocaleDateString('ar-EG') : 'مضافة حديثًا'}</span>${x.pdf_url ? '<span>📄 ملف PDF</span>' : ''}${isSaved(x) ? '<span class="saved">⬇ محمّلة</span>' : ''}</div><div class="card-actions stack">${x.media_url || x.pdf_url ? `<button class="btn-listen" data-view="${esc(x.id)}"><span class="bl-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="14" width="5" height="7" rx="2"/><rect x="16" y="14" width="5" height="7" rx="2"/></svg></span><span class="bl-txt"><b>استمع للمحاضرة</b><small>${isSaved(x) ? 'محمّلة وتعمل بدون إنترنت' : 'اضغط لفتح المحاضرة'}</small></span><span class="bl-go">←</span></button>` : '<div class="no-lec">لا توجد محاضرة لهذا العنوان، الأسئلة فقط في تبويب «الاختبارات»</div>'}</div></article>`; }
   function byWeek(rows) { const m = new Map(); rows.forEach(x => { const w = Number(x.week) || 1; if (!m.has(w)) m.set(w, []); m.get(w).push(x); }); return [...m.entries()].sort((a, b) => a[0] - b[0]); }
   function render() {
     const q = $('#search').value.trim().toLowerCase();
@@ -119,6 +119,27 @@
   });
   $('#search').addEventListener('input', render);
   $('#refreshBtn').onclick = () => { loadNotices(); load(); loadEssays(); };
+  // السحب لأسفل للتحديث: مؤشر عائم لا يشغل مساحة ولا يغيّر التخطيط، ولا يعمل أثناء فتح نافذة أو الكتابة
+  (function () {
+    const el = document.createElement('div'); el.id = 'ptr'; el.setAttribute('aria-hidden', 'true'); el.innerHTML = '<span class="ptr-i">↓</span>'; document.body.appendChild(el);
+    let y0 = 0, dy = 0, on = false, busy = false; const TH = 110;
+    const allowed = t => !busy && state.session && modal.classList.contains('hidden') && (state.tab === 'home' || state.tab === 'quiz') && !(t && t.closest && t.closest('input,textarea,select,audio,[contenteditable]'));
+    const reset = () => { el.classList.remove('pull', 'ready'); el.style.transform = ''; };
+    addEventListener('touchstart', e => { on = e.touches.length === 1 && window.scrollY <= 0 && allowed(e.target); y0 = e.touches[0].clientY; dy = 0; }, { passive: true });
+    addEventListener('touchmove', e => {
+      if (!on) return; dy = e.touches[0].clientY - y0;
+      if (dy < 12 || window.scrollY > 0) { reset(); return; }
+      const p = Math.min(dy * 0.45, 70); el.classList.add('pull'); el.classList.toggle('ready', dy >= TH);
+      el.style.transform = `translate(-50%, ${p - 44}px)`;
+    }, { passive: true });
+    addEventListener('touchend', async () => {
+      if (!on) return; on = false; const go = dy >= TH; reset(); if (!go) return;
+      busy = true; el.classList.add('load'); el.innerHTML = '<span class="spinner" style="margin:0"></span>';
+      try { await Promise.allSettled([load(), loadNotices(), loadEssays()]); if (state.tab === 'quiz' && modal.classList.contains('hidden')) drawQuizTab(false); toast('تم التحديث ✓'); }
+      finally { busy = false; el.classList.remove('load'); el.innerHTML = '<span class="ptr-i">↓</span>'; }
+    }, { passive: true });
+    addEventListener('touchcancel', () => { on = false; reset(); }, { passive: true });
+  })();
   // ---------- التبويبات ----------
   function showTab(t) {
     state.tab = t; state.inQuiz = false; hideModal();
@@ -148,29 +169,19 @@
     if (pend) return `<span class="chip wait">جاري التصحيح${es.length > 1 ? ' (' + pend + ')' : ''}</span>`;
     const f = lecFinal(x); return f ? `<span class="chip ok">النتيجة النهائية: ${f.got} من ${f.of}</span>` : '';
   }
-  function essaySummary() {
-    const pend = state.essays.filter(e => e.status !== 'graded').length, gr = state.essays.length - pend, nw = unseenGraded().length;
-    return `<button class="essay-sum${nw ? ' new' : ''}" id="myEssays"><span class="es-ico">${nw ? '🔔' : '📝'}</span><span class="es-txt"><b>${nw ? `تم تصحيح ${nw} ${nw === 1 ? 'إجابة' : 'إجابات'} — اضغط لرؤية درجتك` : 'إجاباتي المقالية'}</b><small>${pend ? pend + ' جاري التصحيح' : ''}${pend && gr ? ' · ' : ''}${gr ? gr + ' تم تصحيحها' : ''}</small></span><span class="es-go">←</span></button>`;
-  }
   function drawQuizTab(refresh = true) {
     const v = $('#quizView'); if (!v) return;
     const ws = byWeek(state.lessons.filter(x => qCount(x)));
-    v.innerHTML = `<div class="qv-head"><span class="eyebrow">راجع ما تعلمت</span><h1>الاختبارات</h1><p>اختبار لكل محاضرة. أسئلة الاختيار تُصحَّح فورًا، والمقالية يصحّحها المشرف.</p></div>${state.essays.length ? essaySummary() : ''}${ws.length ? ws.map(([w, items]) => { const op = state.openWeeks.has(w); return `<div class="week-group${op ? ' open' : ''}"><button class="week-head wk-toggle${weekDone(w) ? ' done' : ''}" data-wk="${w}" aria-expanded="${op}"><div><b>${weekDone(w) ? '<span class="tick">✓</span> ' : ''}الأسبوع ${w}</b><small>${items.reduce((n, x) => n + qCount(x), 0)} سؤال</small></div><span class="chev">⌄</span></button><div class="wk-body">` + items.map(x => { const c = qCounts(x); return `<button class="qv-lec" data-quiz="${esc(x.id)}"><span class="qv-info"><span>${lecDone(x.id) ? '<span class="tick">✓</span> ' : ''}${esc(x.title)}</span><small>${c.mcq ? c.mcq + ' اختيار' : ''}${c.mcq && c.essay ? ' · ' : ''}${c.essay ? c.essay + ' مقالي' : ''}</small>${lecEssayChips(x)}${(() => { const f = lecFinal(x); return f && !qCounts(x).essay ? `<span class="chip ok">النتيجة: ${f.got} من ${f.of}</span>` : ''; })()}</span><span class="qv-go">${lecDone(x.id) ? 'إعادة' : 'ابدأ'} ←</span></button>`; }).join('') + '</div></div>'; }).join('') : '<div class="empty">لا توجد اختبارات بعد.<br>ستظهر هنا أسئلة المحاضرات عند نشرها.</div>'}`;
+    v.innerHTML = `<div class="qv-head"><span class="eyebrow">راجع ما تعلمت</span><h1>الاختبارات</h1><p>اختبار لكل محاضرة. أسئلة الاختيار تُصحَّح فورًا، والمقالية يصحّحها المشرف. لا يمكن إعادة الاختبار بعد إنهائه، لكن يمكنك الاطلاع على الإجابات.</p></div>${ws.length ? ws.map(([w, items]) => { const op = state.openWeeks.has(w); return `<div class="week-group${op ? ' open' : ''}"><button class="week-head wk-toggle${weekDone(w) ? ' done' : ''}" data-wk="${w}" aria-expanded="${op}"><div><b>${weekDone(w) ? '<span class="tick">✓</span> ' : ''}الأسبوع ${w}</b><small>${items.reduce((n, x) => n + qCount(x), 0)} سؤال</small></div><span class="chev">⌄</span></button><div class="wk-body">` + items.map(x => { const c = qCounts(x); return `<button class="qv-lec" data-quiz="${esc(x.id)}"><span class="qv-info"><span>${lecDone(x.id) ? '<span class="tick">✓</span> ' : ''}${esc(x.title)}</span><small>${c.mcq ? c.mcq + ' اختيار' : ''}${c.mcq && c.essay ? ' · ' : ''}${c.essay ? c.essay + ' مقالي' : ''}</small>${lecEssayChips(x)}${(() => { const f = lecFinal(x); return f && !qCounts(x).essay ? `<span class="chip ok">النتيجة: ${f.got} من ${f.of}</span>` : ''; })()}</span><span class="qv-go">${lecComplete(x) ? 'عرض الإجابات' : (lecDone(x.id) ? 'متابعة' : 'ابدأ')} ←</span></button>`; }).join('') + '</div></div>'; }).join('') : '<div class="empty">لا توجد اختبارات بعد.<br>ستظهر هنا أسئلة المحاضرات عند نشرها.</div>'}`;
     if (refresh) loadEssays().then(() => { if (state.tab === 'quiz' && modal.classList.contains('hidden')) drawQuizTab(false); });
+    else { try { localStorage.setItem(gKey(), JSON.stringify(state.essays.filter(e => e.status === 'graded').map(e => e.id))); } catch {} updateQuizBadge(); }
   }
   $('#quizView').addEventListener('click', e => {
     const quiz = e.target.closest('[data-quiz]')?.dataset.quiz, wk = e.target.closest('[data-weekquiz]')?.dataset.weekquiz;
-    if (quiz) { const l = state.lessons.find(x => String(x.id) === quiz); startQuiz(l ? [l] : [], { scope: 'lecture', label: l?.title, lecture_id: l?.id, week: Number(l?.week) || 1 }); }
+    if (quiz) { const l = state.lessons.find(x => String(x.id) === quiz); if (l && lecComplete(l)) showReview(l); else startQuiz(l ? [l] : [], { scope: 'lecture', label: l?.title, lecture_id: l?.id, week: Number(l?.week) || 1 }); }
     if (wk) startQuiz(state.lessons.filter(x => (Number(x.week) || 1) === Number(wk)), { scope: 'week', label: 'اختبار الأسبوع ' + wk, week: Number(wk) });
     const tg = e.target.closest('[data-wk]'); if (tg) { const w = Number(tg.dataset.wk); state.openWeeks.has(w) ? state.openWeeks.delete(w) : state.openWeeks.add(w); const g = tg.closest('.week-group'); g.classList.toggle('open'); tg.setAttribute('aria-expanded', g.classList.contains('open')); }
-    if (e.target.closest('#myEssays')) showMyEssays();
   });
-  function showMyEssays() {
-    const list = state.essays;
-    try { localStorage.setItem(gKey(), JSON.stringify(list.filter(e => e.status === 'graded').map(e => e.id))); } catch {} updateQuizBadge();
-    open(`<h2>إجاباتي المقالية</h2>${list.length ? list.map(e => `<div class="essay-card"><div class="meta"><span>${esc(e.lecture_title || '')}</span>${essayChip(e)}</div><div class="q">${esc(e.question_text)}</div><div class="a">${esc(e.answer_text)}</div>${e.status === 'graded' && e.feedback ? `<div class="fb"><b>ملاحظة المشرف:</b> ${esc(e.feedback)}</div>` : ''}</div>`).join('') : '<p class="hint">لم تُجب عن أسئلة مقالية بعد.</p>'}<button class="secondary full" id="meBack">رجوع</button>`);
-    $('#meBack').onclick = close;
-  }
   async function showGrading(tab = 'pending') {
     open('<h2>تصحيح المقالي</h2><p class="hint"><span class="spinner"></span> جارٍ التحميل...</p>');
     let rows;
@@ -203,7 +214,7 @@
     const box = $('#pdfBox'); if (!box) return;
     if (!OFF) { box.innerHTML = `<iframe class="pdf-frame" src="${esc(x.pdf_url)}" title="ملف المحاضرة"></iframe><a class="small-btn mint" href="${esc(x.pdf_url)}" target="_blank" rel="noopener" style="display:block;text-align:center;text-decoration:none">فتح الملف في صفحة جديدة</a>`; return; }
     if (offHas('pdf', x.id)) { renderPdf(x, box); return; }
-    box.innerHTML = '<button class="secondary full" id="pdfShow">عرض ملف PDF هنا</button>';
+    box.innerHTML = '<button class="btn-pdf" id="pdfShow"><span class="bd-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></svg></span><span class="bd-txt"><b>فتح ملف PDF</b><small>اضغط للعرض هنا داخل التطبيق</small></span></button>';
     $('#pdfShow').onclick = () => renderPdf(x, box);
   }
   async function renderPdf(x, box) {
@@ -245,16 +256,16 @@
   function drawDl(x) {
     const box = $('#dlBox'); if (!box || !OFF || !dlItems(x).length) return;
     if (isSaved(x)) {
-      box.innerHTML = '<div class="dl-ok">✓ محمّلة على جهازك وتعمل بدون إنترنت</div><button class="secondary full danger" id="dlDel">حذف التحميل</button>';
+      box.innerHTML = '<div class="dl-ok">✓ محمّلة على جهازك وتعمل بدون إنترنت</div><button class="btn-del" id="dlDel">حذف التحميل من الجهاز</button>';
       $('#dlDel').onclick = () => { dlItems(x).forEach(i => OFF.remove(i.k, String(x.id))); render(); drawDl(x); toast('تم حذف التحميل.'); };
       return;
     }
-    box.innerHTML = '<button class="secondary full" id="dlGo">⬇ تحميل للاستماع بدون إنترنت</button><p class="hint" id="dlSt"></p>';
+    box.innerHTML = '<button class="btn-dl" id="dlGo"><span class="bd-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/></svg></span><span class="bd-txt"><b>تحميل المحاضرة</b><small>للاستماع بدون إنترنت في أي وقت</small></span></button><div class="dl-bar hidden" id="dlBar"><i></i></div><p class="hint" id="dlSt"></p>';
     $('#dlGo').onclick = async () => {
-      const btn = $('#dlGo'), st = $('#dlSt'); btn.disabled = true;
+      const btn = $('#dlGo'), st = $('#dlSt'); btn.disabled = true; $('#dlBar').classList.remove('hidden');
       const todo = dlItems(x).filter(i => !offHas(i.k, x.id));
       try {
-        for (let n = 0; n < todo.length; n++) { const i = todo[n]; await offDownload(i.k, x.id, i.url, p => { st.textContent = `جارٍ تحميل ${i.k === 'pdf' ? 'ملف PDF' : 'الصوت'} (${n + 1}/${todo.length}): ${p}٪`; }); }
+        for (let n = 0; n < todo.length; n++) { const i = todo[n]; await offDownload(i.k, x.id, i.url, p => { st.textContent = `جارٍ تحميل ${i.k === 'pdf' ? 'ملف PDF' : 'الصوت'} (${n + 1}/${todo.length}): ${p}٪`; const bi = $('#dlBar i'); if (bi) bi.style.width = Math.round((n + p / 100) / todo.length * 100) + '%'; }); }
         const pl = $('#player'); if (pl && pl.paused && offHas('audio', x.id)) pl.src = OFF.path('audio', String(x.id));
         render(); drawDl(x); toast('تم التحميل.');
       } catch (err) { btn.disabled = false; st.textContent = err.message; }
@@ -290,16 +301,60 @@
     if (!r && !es.length) return null;
     return { got: (r ? Number(r.correct) : 0) + es.reduce((n, e) => n + Number(e.score || 0), 0), of: (r ? Number(r.total) : 0) + es.reduce((n, e) => n + Number(e.points || 0), 0) };
   }
+  // ---------- درجة السؤال + الاكتمال + مراجعة الإجابات ----------
+  const ptsLabel = n => n === 1 ? 'درجة واحدة' : n === 2 ? 'درجتان' : n <= 10 ? n + ' درجات' : n + ' درجة';
+  const mcqPts = q => Math.max(1, Number(q && q.points) || 1);
+  const essPts = q => Math.max(1, Number(q && q.points) || 10);
+  function lecComplete(x) {
+    const c = qCounts(x); if (!(c.mcq + c.essay)) return false;
+    const hasRes = (state.myResults || []).some(r => r.scope === 'lecture' && String(r.lecture_id) === String(x.id));
+    const nEs = state.essays.filter(e => String(e.lecture_id) === String(x.id)).length;
+    return (!c.mcq || hasRes) && nEs >= c.essay;
+  }
+  const selKey = () => 'mcq-sel-' + (state.session?.user?.id || '');
+  const getSel = lid => { try { return (JSON.parse(localStorage.getItem(selKey()) || '{}'))[String(lid)] || {}; } catch { return {}; } };
+  function saveSel(m, quiz) {
+    if (!m || m.scope !== 'lecture') return;
+    try {
+      const all = JSON.parse(localStorage.getItem(selKey()) || '{}'), cur = all[String(m.lecture_id)] || {};
+      quiz.filter(q => q.type === 'mcq').forEach(q => { const v = (state.sel || {})[q.lid + ':' + q.qix]; if (v !== undefined) cur[q.qix] = v; });
+      all[String(m.lecture_id)] = cur; localStorage.setItem(selKey(), JSON.stringify(all));
+    } catch {}
+  }
+  function failSave(m) {
+    if (m && m.scope === 'lecture') {
+      state.myResults = (state.myResults || []).filter(r => String(r.lecture_id) !== String(m.lecture_id));
+      const d = getDone(); d.lectures = d.lectures.filter(id => id !== String(m.lecture_id)); saveDone(d);
+    }
+    render(); toast('تعذّر حفظ نتيجتك. تأكد من الإنترنت ثم أعد الاختبار.');
+  }
+  function showReview(x) {
+    const qs = Array.isArray(x.questions) ? x.questions : [], sel = getSel(x.id), L = ['أ','ب','ج','د','هـ','و'], fin = lecFinal(x);
+    const items = qs.map((q, i) => {
+      if (!q || !q.text) return '';
+      if (qType(q) === 'essay') {
+        const e = essayOf(x.id, i);
+        return `<div class="rv-q"><div class="rv-h"><span class="rv-n">${i + 1}</span><b>${esc(q.text)}</b></div><small class="rv-pts">سؤال مقالي · ${ptsLabel(essPts(q))}</small>${e ? `<div class="essay-card"><div class="meta">${essayChip(e)}</div><div class="a">${esc(e.answer_text)}</div>${e.status === 'graded' && e.feedback ? `<div class="fb"><b>ملاحظة المشرف:</b> ${esc(e.feedback)}</div>` : ''}</div>` : '<p class="hint">لم تُجب عن هذا السؤال.</p>'}</div>`;
+      }
+      if (!(q.options || []).length) return '';
+      const ans = Number(q.answer), mine = sel[i], known = mine !== undefined && mine !== null, pts = mcqPts(q);
+      return `<div class="rv-q"><div class="rv-h"><span class="rv-n">${i + 1}</span><b>${esc(q.text)}</b></div><small class="rv-pts">اختيار من متعدد · ${ptsLabel(pts)}${known ? (mine === ans ? ' · <span class="rv-yes">✓ إجابتك صحيحة</span>' : ' · <span class="rv-no">✗ إجابتك خاطئة</span>') : ''}</small>${q.options.map((o, k) => o ? `<div class="rv-opt${k === ans ? ' ok' : (known && k === mine ? ' bad' : '')}"><b>${L[k] || k + 1}</b><span>${esc(o)}</span>${k === ans ? '<em>الإجابة الصحيحة</em>' : (known && k === mine ? '<em>إجابتك</em>' : '')}</div>` : '').join('')}${q.explanation ? `<div class="rv-exp"><b>الشرح:</b> ${esc(q.explanation)}</div>` : ''}</div>`;
+    }).join('');
+    open(`<h2>إجابات: ${esc(x.title)}</h2>${fin ? `<div class="dl-ok">درجتك النهائية ${fin.got} من ${fin.of}</div>` : ''}<p class="hint">للاطلاع فقط، لا يمكن إعادة الاختبار.</p>${items || '<p class="hint">لا توجد أسئلة.</p>'}<button class="secondary full" id="rvClose">إغلاق</button>`);
+    $('#rvClose').onclick = close;
+  }
   async function startQuiz(lessons, meta = { scope: 'all', label: 'مراجعة' }) {
     const qs = lessons.flatMap(l => (Array.isArray(l.questions) ? l.questions : []).map((q, i) => ({ ...q, type: qType(q), lessonTitle: l.title, lid: String(l.id), qix: i, week: Number(l.week) || 1 }))).filter(q => q.text && (q.type === 'essay' || q.options?.length >= 2));
     if (!qs.length) { toast('لا توجد أسئلة منشورة لهذه المحاضرات بعد.'); return; }
     await loadEssays();
-    const mcq = qs.filter(q => q.type === 'mcq').sort(() => Math.random() - .5), es = qs.filter(q => q.type === 'essay');
-    state.inQuiz = true; state.quizMeta = meta; state.quiz = [...mcq, ...es]; state.mcqTotal = mcq.length; state.qi = 0; state.score = 0; state.selected = -1; showQuestion();
+    const hasRes = meta.scope === 'lecture' && (state.myResults || []).some(r => r.scope === 'lecture' && String(r.lecture_id) === String(meta.lecture_id));
+    const mcq = hasRes ? [] : qs.filter(q => q.type === 'mcq').sort(() => Math.random() - .5), es = qs.filter(q => q.type === 'essay');
+    state.sel = {};
+    state.inQuiz = true; state.quizMeta = meta; state.quiz = [...mcq, ...es]; state.mcqTotal = mcq.reduce((n, q) => n + mcqPts(q), 0); state.qi = 0; state.score = 0; state.selected = -1; showQuestion();
   }
   function qHead(q) {
     const total = state.quiz.length;
-    return `<div class="q-top"><span class="eyebrow">${state.qi + 1} / ${total}</span><div class="progress"><i style="width:${Math.round(state.qi / total * 100)}%"></i></div></div><span class="q-type">${esc(q.lessonTitle || 'مراجعة')} · ${q.type === 'essay' ? 'سؤال مقالي' : 'اختيار من متعدد'}</span><h3 class="q-text">${esc(q.text)}</h3>`;
+    return `<div class="q-top"><span class="eyebrow">${state.qi + 1} / ${total}</span><div class="progress"><i style="width:${Math.round(state.qi / total * 100)}%"></i></div></div><span class="q-type">${esc(q.lessonTitle || 'مراجعة')} · ${q.type === 'essay' ? 'سؤال مقالي' : 'اختيار من متعدد'} · ${ptsLabel(q.type === 'essay' ? essPts(q) : mcqPts(q))}</span><h3 class="q-text">${esc(q.text)}</h3>`;
   }
   function nextQuestion() { state.qi++; state.selected = -1; if (state.qi >= state.quiz.length) showResult(); else showQuestion(); }
   function showQuestion() {
@@ -314,13 +369,14 @@
     };
     $('#checkAnswer').onclick = () => {
       if (state.selected < 0) { toast('اختر إجابة أولًا.'); return; }
-      if (Number(q.answer) === state.selected) state.score++;
+      (state.sel = state.sel || {})[q.lid + ':' + q.qix] = state.selected;
+      if (Number(q.answer) === state.selected) state.score += mcqPts(q);
       nextQuestion();
     };
   }
   function showEssay(q) {
-    const prev = essayOf(q.lid, q.qix), pts = Number(q.points) || 10, last = state.qi === state.quiz.length - 1;
-    open(`<div class="qscreen">${qHead(q)}<div class="essay-box"><textarea id="essayText" maxlength="4000" placeholder="اكتب إجابتك هنا..." ${prev ? 'disabled' : ''}>${esc(prev ? prev.answer_text : '')}</textarea>${prev ? '' : '<small class="cnt" id="essayCnt">0 / 4000</small>'}</div><div id="feedback">${prev ? `<p>${essayChip(prev)}</p>${prev.status === 'graded' && prev.feedback ? `<p><b>ملاحظة المشرف:</b> ${esc(prev.feedback)}</p>` : ''}` : `<p class="hint">الدرجة ${pts}. يصحّح المشرف إجابتك، وتظهر لك «جاري التصحيح» حتى تُصحَّح.</p>`}</div><div class="q-act"><button class="primary full" id="essayNext">${prev ? (last ? 'إنهاء' : 'السؤال التالي ←') : (last ? 'إرسال وإنهاء' : 'إرسال والتالي ←')}</button></div></div>`, true);
+    const prev = essayOf(q.lid, q.qix), pts = essPts(q), last = state.qi === state.quiz.length - 1;
+    open(`<div class="qscreen">${qHead(q)}<div class="essay-box"><textarea id="essayText" maxlength="4000" placeholder="اكتب إجابتك هنا..." ${prev ? 'disabled' : ''}>${esc(prev ? prev.answer_text : '')}</textarea>${prev ? '' : '<small class="cnt" id="essayCnt">0 / 4000</small>'}</div><div id="feedback">${prev ? `<p>${essayChip(prev)}</p>${prev.status === 'graded' && prev.feedback ? `<p><b>ملاحظة المشرف:</b> ${esc(prev.feedback)}</p>` : ''}` : `<p class="hint">درجة السؤال: ${pts}. يصحّح المشرف إجابتك، وتظهر لك «جاري التصحيح» حتى تُصحَّح.</p>`}</div><div class="q-act"><button class="primary full" id="essayNext">${prev ? (last ? 'إنهاء' : 'السؤال التالي ←') : (last ? 'إرسال وإنهاء' : 'إرسال والتالي ←')}</button></div></div>`, true);
     if (!prev) $('#essayText').oninput = e => { $('#essayCnt').textContent = e.target.value.length + ' / 4000'; };
     $('#essayNext').onclick = async () => {
       const btn = $('#essayNext');
@@ -341,14 +397,15 @@
   function showResult() {
     const n = state.mcqTotal, ess = state.quiz.filter(q => q.type === 'essay'), m = state.quizMeta || {};
     state.inQuiz = false;
-    if (n) { saveResult(n, state.score); if (m.scope === 'lecture') { state.myResults = (state.myResults || []).filter(r => String(r.lecture_id) !== String(m.lecture_id)); state.myResults.unshift({ scope: 'lecture', lecture_id: m.lecture_id, correct: state.score, total: n }); } }
-    markDone(m);
+    if (n) { saveResult(n, state.score).catch(() => failSave(m)); if (m.scope === 'lecture') { state.myResults = (state.myResults || []).filter(r => String(r.lecture_id) !== String(m.lecture_id)); state.myResults.unshift({ scope: 'lecture', lecture_id: m.lecture_id, correct: state.score, total: n }); } }
+    saveSel(m, state.quiz); markDone(m);
     const lec = state.lessons.find(x => String(x.id) === String(m.lecture_id)), fin = lec ? lecFinal(lec) : null;
     let msg;
     if (ess.length && !fin) msg = `<h2 style="text-align:center;padding:0">تم إرسال إجاباتك</h2><p style="text-align:center"><span class="chip wait">⏳ جاري التصحيح</span></p><p style="text-align:center">ستظهر درجتك كاملة (الاختيار والمقالي معًا) بعد أن يصحّح المشرف أسئلتك المقالية. سنخبرك هنا فور الانتهاء.</p>`;
     else { const g = fin || { got: state.score, of: n }; const p = g.of ? Math.round(g.got / g.of * 100) : 0; msg = `<h2 style="text-align:center;padding:0">أحسنت المراجعة</h2><p style="text-align:center">درجتك <b>${g.got}</b> من <b>${g.of}</b> (${p}٪).</p>`; }
-    open(`<div class="about-mark">ض</div>${msg}<button class="primary full" id="resultDone">العودة</button>`);
+    open(`<div class="about-mark">ض</div>${msg}${lec && m.scope === 'lecture' ? '<button class="secondary full" id="resultReview" style="margin-bottom:8px">عرض الإجابات</button>' : ''}<button class="primary full" id="resultDone">العودة</button>`);
     $('#resultDone').onclick = close;
+    if ($('#resultReview')) $('#resultReview').onclick = () => showReview(lec);
   }
   $('#adminOpen').onclick = () => { if (state.admin) showAdmin(); };
   function showAdmin() {
@@ -359,21 +416,21 @@
   }
   function lessonForm(x) {
     state.editing=x;
-    open(`<h2>${x?'تعديل المحاضرة':'إضافة محاضرة'}</h2><div class="field"><label>عنوان المحاضرة</label><input id="title" maxlength="120" value="${esc(x?.title||'')}" placeholder="مثال: أنواع الجملة في اللغة العربية"></div><div class="field"><label>نبذة مختصرة</label><textarea id="description" maxlength="800" placeholder="اكتب وصفًا موجزًا">${esc(x?.description||'')}</textarea></div><div class="field"><label>رقم الأسبوع</label><input id="week" type="number" min="1" max="100" inputmode="numeric" value="${Number(x?.week)||Math.max(1,...state.lessons.map(l=>Number(l.week)||1))}"></div><div class="field"><label>ملف المحاضرة الصوتي</label><input id="mediaFile" type="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.wav"><span class="hint">ملف صوت (MP3 أو M4A) أقل من 50 ميجابايت. يمكن إضافة رابط MP3 عام بدل الرفع.</span></div><div class="field"><label>ملف PDF (اختياري)</label><input id="pdfFile" type="file" accept="application/pdf,.pdf"><span class="hint">${x?.pdf_url ? 'يوجد ملف PDF حاليًا، اختر ملفًا جديدًا لاستبداله. ' : ''}الحد الأقصى 50 ميجابايت.</span>${x?.pdf_url ? '<label class="hint"><input type="checkbox" id="pdfRemove"> حذف ملف PDF الحالي</label>' : ''}</div><div class="field"><label>أو رابط MP3 مباشر</label><input id="mediaUrl" type="url" value="${esc(x?.media_url||'')}" placeholder="https://..."></div><div class="section-head" style="margin:20px 0 8px"><h2 style="font-size:19px">أسئلة المحاضرة</h2></div><div id="questionFields">${(x?.questions||[]).map(questionEditor).join('')}</div><button class="secondary full" id="addQuestion">＋ إضافة سؤال</button><button class="primary full" id="saveLesson">${x?'حفظ التعديلات ونشرها':'نشر المحاضرة'}</button><p class="hint" id="saveStatus"></p>`);
+    open(`<h2>${x?'تعديل المحاضرة':'إضافة محاضرة'}</h2><div class="field"><label>عنوان المحاضرة</label><input id="title" maxlength="120" value="${esc(x?.title||'')}" placeholder="مثال: الجملة الاسمية والفعلية"></div><div class="field"><label>نبذة مختصرة</label><textarea id="description" maxlength="800" placeholder="اكتب وصفًا موجزًا">${esc(x?.description||'')}</textarea></div><div class="field"><label>رقم الأسبوع</label><input id="week" type="number" min="1" max="100" inputmode="numeric" value="${Number(x?.week)||Math.max(1,...state.lessons.map(l=>Number(l.week)||1))}"></div><div class="field"><label>ملف المحاضرة الصوتي</label><input id="mediaFile" type="file" accept="audio/*,.mp3,.m4a,.aac,.ogg,.wav"><span class="hint">ملف صوت (MP3 أو M4A) أقل من 50 ميجابايت. يمكن إضافة رابط MP3 عام بدل الرفع.</span></div><div class="field"><label>ملف PDF (اختياري)</label><input id="pdfFile" type="file" accept="application/pdf,.pdf"><span class="hint">${x?.pdf_url ? 'يوجد ملف PDF حاليًا، اختر ملفًا جديدًا لاستبداله. ' : ''}الحد الأقصى 50 ميجابايت.</span>${x?.pdf_url ? '<label class="hint"><input type="checkbox" id="pdfRemove"> حذف ملف PDF الحالي</label>' : ''}</div><div class="field"><label>أو رابط MP3 مباشر</label><input id="mediaUrl" type="url" value="${esc(x?.media_url||'')}" placeholder="https://..."></div><div class="section-head" style="margin:20px 0 8px"><h2 style="font-size:19px">أسئلة المحاضرة</h2></div><div id="questionFields">${(x?.questions||[]).map(questionEditor).join('')}</div><button class="secondary full" id="addQuestion">＋ إضافة سؤال</button><button class="primary full" id="saveLesson">${x?'حفظ التعديلات ونشرها':'نشر المحاضرة'}</button><p class="hint" id="saveStatus"></p>`);
     $('#addQuestion').onclick=()=>{$('#questionFields').insertAdjacentHTML('beforeend',questionEditor());};
     $('#saveLesson').onclick=()=>saveLesson(x);
   }
   let questionNumber=0;
-  function questionEditor(q={type:'mcq',text:'',options:['','','',''],answer:0,explanation:'',points:10}) {
+  function questionEditor(q={type:'mcq',text:'',options:['','','',''],answer:0,explanation:'',points:1}) {
     const essay=q.type==='essay',opts=[...(q.options||[])];while(opts.length<4)opts.push('');
     const group=`correct-${questionNumber++}`;
-    return `<div class="qbox"><div class="field q-type-sel"><label>نوع السؤال</label><select data-qtype><option value="mcq" ${essay?'':'selected'}>اختيار من متعدد</option><option value="essay" ${essay?'selected':''}>مقالي (يصحّحه المشرف)</option></select></div><div class="field"><label>السؤال</label><input data-qtext maxlength="300" value="${esc(q.text||'')}" placeholder="اكتب السؤال"></div><div class="q-mcq ${essay?'hidden':''}">${opts.slice(0,4).map((o,i)=>`<div class="qrow"><div class="field" style="flex:1"><label>الخيار ${i+1}</label><input data-optiontext value="${esc(o)}" placeholder="نص الإجابة"></div><label><input type="radio" data-correct name="${group}" ${!essay&&Number(q.answer)===i?'checked':''}> صحيح</label></div>`).join('')}</div><div class="q-essay ${essay?'':'hidden'}"><div class="field"><label>درجة السؤال</label><input type="number" data-points min="1" max="100" inputmode="numeric" value="${Number(q.points)||10}"></div></div><div class="field"><label data-explabel>${essay?'إجابة نموذجية للمصحّح':'شرح اختياري'}</label><input data-explanation value="${esc(q.explanation||'')}" placeholder="${essay?'تظهر لك أنت عند التصحيح':'توضيح الإجابة'}"></div><button class="secondary danger" data-remove-q>حذف السؤال</button></div>`;
+    return `<div class="qbox"><div class="field q-type-sel"><label>نوع السؤال</label><select data-qtype><option value="mcq" ${essay?'':'selected'}>اختيار من متعدد</option><option value="essay" ${essay?'selected':''}>مقالي (يصحّحه المشرف)</option></select></div><div class="field"><label>السؤال</label><input data-qtext maxlength="300" value="${esc(q.text||'')}" placeholder="اكتب السؤال"></div><div class="q-mcq ${essay?'hidden':''}">${opts.slice(0,4).map((o,i)=>`<div class="qrow"><div class="field" style="flex:1"><label>الخيار ${i+1}</label><input data-optiontext value="${esc(o)}" placeholder="نص الإجابة"></div><label><input type="radio" data-correct name="${group}" ${!essay&&Number(q.answer)===i?'checked':''}> صحيح</label></div>`).join('')}</div><div class="field"><label>درجة السؤال</label><input type="number" data-points min="1" max="100" inputmode="numeric" value="${Number(q.points)||(essay?10:1)}"></div><div class="field"><label data-explabel>${essay?'إجابة نموذجية للمصحّح':'شرح اختياري'}</label><input data-explanation value="${esc(q.explanation||'')}" placeholder="${essay?'تظهر لك أنت عند التصحيح':'توضيح الإجابة'}"></div><button class="secondary danger" data-remove-q>حذف السؤال</button></div>`;
   }
-  $('#modalBody').addEventListener('change',e=>{const s=e.target.closest('[data-qtype]');if(!s)return;const box=s.closest('.qbox'),es=s.value==='essay';box.querySelector('.q-mcq').classList.toggle('hidden',es);box.querySelector('.q-essay').classList.toggle('hidden',!es);box.querySelector('[data-explabel]').textContent=es?'إجابة نموذجية للمصحّح':'شرح اختياري';});
+  $('#modalBody').addEventListener('change',e=>{const s=e.target.closest('[data-qtype]');if(!s)return;const box=s.closest('.qbox'),es=s.value==='essay';box.querySelector('.q-mcq').classList.toggle('hidden',es);{const pi=box.querySelector('[data-points]');const v=parseInt(pi.value,10)||0;if(es&&v<=1)pi.value=10;if(!es&&v===10)pi.value=1;}box.querySelector('[data-explabel]').textContent=es?'إجابة نموذجية للمصحّح':'شرح اختياري';});
   $('#modalBody').addEventListener('click',e=>{if(e.target.matches('[data-remove-q]'))e.target.closest('.qbox').remove();});
   async function saveLesson(x) {
     const status=$('#saveStatus'), title=$('#title').value.trim(); if(!title){toast('اكتب عنوان المحاضرة.');return;}
-    const questions=[...document.querySelectorAll('.qbox')].map(box=>{const type=box.querySelector('[data-qtype]').value,text=box.querySelector('[data-qtext]').value.trim(),explanation=box.querySelector('[data-explanation]').value.trim();if(type==='essay')return{type:'essay',text,points:Math.min(100,Math.max(1,parseInt(box.querySelector('[data-points]').value,10)||10)),explanation};return{type:'mcq',text,options:[...box.querySelectorAll('[data-optiontext]')].map(i=>i.value.trim()),answer:[...box.querySelectorAll('[data-correct]')].findIndex(i=>i.checked),explanation};}).filter(q=>q.text);
+    const questions=[...document.querySelectorAll('.qbox')].map(box=>{const type=box.querySelector('[data-qtype]').value,text=box.querySelector('[data-qtext]').value.trim(),explanation=box.querySelector('[data-explanation]').value.trim(),points=Math.min(100,Math.max(1,parseInt(box.querySelector('[data-points]').value,10)||(type==='essay'?10:1)));if(type==='essay')return{type:'essay',text,points,explanation};return{type:'mcq',text,options:[...box.querySelectorAll('[data-optiontext]')].map(i=>i.value.trim()),answer:[...box.querySelectorAll('[data-correct]')].findIndex(i=>i.checked),explanation,points};}).filter(q=>q.text);
     if(questions.some(q=>q.type==='mcq'&&(q.options.filter(Boolean).length<2||q.answer<0||!q.options[q.answer]))){toast('أكمل خيارات كل سؤال اختيار وحدد الإجابة الصحيحة.');return;}
     status.textContent='جارٍ حفظ المحتوى...';
     try {
@@ -427,10 +484,10 @@
   }
   // ---------- نتائج الاختبارات ----------
   function saveResult(total, correct) {
-    const u = state.session?.user; if (!u || !state.quizMeta) return;
+    const u = state.session?.user; if (!u || !state.quizMeta) return Promise.resolve();
     const m = state.quizMeta, um = u.user_metadata || {}, em = u.email || '';
     const row = { user_id: u.id, user_name: um.full_name || '', user_contact: um.phone || (/@phone\.bildad\.app$/.test(em) ? '' : em), scope: m.scope, label: String(m.label || '').slice(0, 200), week: m.week || null, lecture_id: m.lecture_id || null, correct, total };
-    api('/rest/v1/quiz_results', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Prefer': 'return=minimal' }, body: JSON.stringify(row) }).catch(() => {});
+    return api('/rest/v1/quiz_results', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Prefer': 'return=minimal' }, body: JSON.stringify(row) });
   }
   const pct = (c, t) => Math.round(c * 100 / t);
   async function showStudents() {
@@ -583,11 +640,8 @@
     "من أتقن لغته أتقن التعبير عن نفسه.",
     "النحو في الكلام كالملح في الطعام.",
     "القراءة كل يوم تبني لسانًا فصيحًا.",
-    "الإملاء الصحيح عنوان الكاتب المتقن.",
     "كل كلمة جديدة تتعلمها تفتح لك بابًا من المعرفة.",
-    "البلاغة أن تقول ما يلزم بأجمل ما يكون.",
     "اللغة العربية بحر واسع، وكل يوم نغرف منه قطرة.",
-    "الصرف يعلّمك كيف تُبنى الكلمات وتتشكل المعاني.",
     "ابدأ بخطوة صغيرة كل يوم، وستتقن العربية بإذن الله.",
     "الفصاحة تُكتسب بالممارسة والاستماع والقراءة.",
     "العربية ليست مادة تُدرس فقط، بل هوية تُعاش.",

@@ -161,7 +161,7 @@ grant select, insert on public.quiz_results to authenticated;
 drop policy if exists "students add own results" on public.quiz_results;
 create policy "students add own results" on public.quiz_results for insert to authenticated with check (user_id = auth.uid());
 drop policy if exists "read own results or admin" on public.quiz_results;
-create policy "read own results or admin" on public.quiz_results for select to authenticated using (user_id = auth.uid() or public.is_lecture_admin());
+create policy "read own results or admin" on public.quiz_results for select to authenticated using (user_id = (select auth.uid()) or public.is_lecture_admin());
 create index if not exists quiz_results_user_idx on public.quiz_results (user_id, created_at desc);
 
 -- Teacher-only student overview (name, phone/email, attempts, average, best).
@@ -210,34 +210,65 @@ create table if not exists public.essay_answers (
 alter table public.essay_answers enable row level security;
 drop policy if exists "own or admin read essays" on public.essay_answers;
 create policy "own or admin read essays" on public.essay_answers for select to authenticated
-using (user_id = auth.uid() or public.is_lecture_admin());
+using (user_id = (select auth.uid()) or public.is_lecture_admin());
 drop policy if exists "students add own essays" on public.essay_answers;
 create policy "students add own essays" on public.essay_answers for insert to authenticated
-with check (user_id = auth.uid() and status = 'pending' and score is null and graded_at is null);
+with check (user_id = (select auth.uid()) and status = 'pending' and score is null and graded_at is null);
 drop policy if exists "admin grades essays" on public.essay_answers;
 create policy "admin grades essays" on public.essay_answers for update to authenticated
 using (public.is_lecture_admin()) with check (public.is_lecture_admin());
 create index if not exists essay_answers_status_idx on public.essay_answers (status, created_at);
 create index if not exists lectures_week_idx on public.lectures (week, created_at);
 
--- ===== محتوى تجريبي لكورس اللغة العربية (احذفه من لوحة الإدارة متى شئت) =====
-insert into public.lectures (title, description, week, published, questions)
+-- ===== محتوى تجريبي لمحاضرات النحو (احذفه من لوحة الإدارة متى شئت) =====
+insert into public.lectures (title, description, week, published, media_type, questions)
 select * from (values
- ('أقسام الكلام: الاسم والفعل والحرف', 'تعرّف على أقسام الكلمة في العربية وكيف تميّز بينها.', 1, true, '[
-  {"type":"mcq","text":"أي الكلمات التالية فعل؟","options":["كتابٌ","يكتبُ","في","مدرسة"],"answer":1,"explanation":"يكتب فعل مضارع لأنه يدل على حدث مرتبط بزمن.","points":10},
-  {"type":"mcq","text":"كلمة «في» تُعرب من أقسام الكلام:","options":["اسم","فعل","حرف","ضمير"],"answer":2,"explanation":"«في» حرف جر.","points":10},
+ ('أقسام الكلام: الاسم والفعل والحرف', 'تعرّف على أقسام الكلمة في العربية وكيف تميّز بينها.', 1, true, 'audio', '[
+  {"type":"mcq","text":"أي الكلمات التالية فعل؟","options":["كتابٌ","يكتبُ","في","مدرسة"],"answer":1,"explanation":"يكتب فعل مضارع لأنه يدل على حدث مرتبط بزمن.","points":2},
+  {"type":"mcq","text":"كلمة «في» من أقسام الكلام:","options":["اسم","فعل","حرف","ضمير"],"answer":2,"explanation":"«في» حرف جر.","points":2},
   {"type":"essay","text":"اذكر ثلاثة أمثلة على الأسماء وثلاثة على الأفعال.","options":[],"answer":0,"explanation":"أمثلة صحيحة مثل: قلم، بيت، علم / كتب، قرأ، يذهب.","points":10}
  ]'::jsonb),
- ('الجملة الاسمية والجملة الفعلية', 'الفرق بين المبتدأ والخبر وبين الفعل والفاعل.', 1, true, '[
-  {"type":"mcq","text":"الجملة «العلمُ نورٌ» جملة:","options":["اسمية","فعلية","شبه جملة","شرطية"],"answer":0,"explanation":"تبدأ باسم (العلم) فهي اسمية.","points":10},
-  {"type":"mcq","text":"الجملة «يقرأ الطالبُ الدرسَ» جملة:","options":["اسمية","فعلية","استفهامية","نفي"],"answer":1,"explanation":"تبدأ بفعل (يقرأ) فهي فعلية.","points":10}
- ]'::jsonb),
- ('الإملاء: الهمزة المتوسطة', 'قواعد كتابة الهمزة في وسط الكلمة.', 2, true, '[
-  {"type":"mcq","text":"أيّ الكلمات كُتبت همزتها صحيحة؟","options":["مسئول","مسؤول","مسءول","مسوول"],"answer":1,"explanation":"الضمة أقوى من الفتحة فتُكتب الهمزة على واو: مسؤول.","points":10}
+ ('الجملة الاسمية والجملة الفعلية', 'الفرق بين المبتدأ والخبر وبين الفعل والفاعل.', 1, true, 'audio', '[
+  {"type":"mcq","text":"الجملة «العلمُ نورٌ» جملة:","options":["اسمية","فعلية","شبه جملة","شرطية"],"answer":0,"explanation":"تبدأ باسم (العلم) فهي اسمية.","points":1},
+  {"type":"mcq","text":"الجملة «يقرأ الطالبُ الدرسَ» جملة:","options":["اسمية","فعلية","استفهامية","نفي"],"answer":1,"explanation":"تبدأ بفعل (يقرأ) فهي فعلية.","points":1}
  ]'::jsonb)
-) as v(title, description, week, published, questions)
+) as v(title, description, week, published, media_type, questions)
 where not exists (select 1 from public.lectures);
 
 -- ===== بعد إنشاء حساب المشرف من التطبيق (أو من Authentication > Users) =====
 -- اجعل حسابك مشرفًا بالبريد (غيّر البريد ثم نفّذ):
 -- insert into public.lecture_admins (user_id) select id from auth.users where email = 'YOUR-EMAIL@example.com';
+
+
+-- ===== تحسينات الأمان (مطبّقة على المشروع الحي) =====
+drop policy if exists "anyone reads published lectures" on public.lectures;
+drop policy if exists "signed-in users read published lectures" on public.lectures;
+create policy "signed-in users read published lectures" on public.lectures
+for select to authenticated using (published = true or public.is_lecture_admin());
+revoke select, insert, update, delete on public.lectures from anon;
+revoke execute on function public.signup_with_phone(text, text, text) from authenticated;
+alter table public.quiz_results drop constraint if exists quiz_results_len_chk;
+alter table public.quiz_results add constraint quiz_results_len_chk check (char_length(user_name) <= 100 and char_length(user_contact) <= 200 and char_length(label) <= 200);
+alter table public.essay_answers drop constraint if exists essay_len_chk;
+alter table public.essay_answers add constraint essay_len_chk check (char_length(answer_text) <= 4000 and char_length(question_text) <= 2000 and char_length(user_name) <= 100 and char_length(user_contact) <= 200 and char_length(lecture_title) <= 300 and (feedback is null or char_length(feedback) <= 2000) and points between 0 and 100);
+alter table public.lectures drop constraint if exists lectures_len_chk;
+alter table public.lectures add constraint lectures_len_chk check (char_length(title) <= 200 and char_length(description) <= 2000 and char_length(media_url) <= 1000 and char_length(pdf_url) <= 1000);
+drop policy if exists "anyone plays lecture media" on storage.objects;
+drop policy if exists "lecture admins read media" on storage.objects;
+create policy "lecture admins read media" on storage.objects for select to authenticated using (bucket_id = 'lecture-media' and public.is_lecture_admin());
+update storage.buckets set file_size_limit = 52428800 where id = 'lecture-media';
+
+-- لا إعادة للاختبار: أي محاولة ثانية لنفس الطالب في نفس المحاضرة تُتجاهل بصمت
+create or replace function public.quiz_results_no_retake()
+returns trigger language plpgsql set search_path = ''
+as $$
+begin
+  if new.lecture_id is not null and exists (
+    select 1 from public.quiz_results r where r.user_id = new.user_id and r.lecture_id = new.lecture_id
+  ) then return null; end if;
+  return new;
+end;
+$$;
+drop trigger if exists quiz_results_no_retake on public.quiz_results;
+create trigger quiz_results_no_retake before insert on public.quiz_results
+for each row execute function public.quiz_results_no_retake();

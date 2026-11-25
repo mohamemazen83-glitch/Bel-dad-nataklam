@@ -10,13 +10,13 @@
 <header class="topbar"><div class="brand"><div class="brand-mark">ض</div><div><b>بالضاد نتكلم</b><small>لغتنا هويتنا</small></div></div><button class="icon-btn hidden" id="bellOpen" aria-label="الإشعارات"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 17V11a6 6 0 0 1 12 0v6l1.5 2h-15z"/><path d="M10 21h4"/></svg><i class="badge hidden" id="bellCount"></i></button><button class="icon-btn hidden" id="adminOpen" aria-label="لوحة الإدارة"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></button></header>
 <div id="netBar" class="netbar hidden" role="alert" aria-live="assertive"></div>
 <main id="home">
-  <section class="welcome"><div class="welcome-art">ض</div><span class="eyebrow">كورس اللغة العربية</span><h1>أتقِن العربية<br>بالضاد نتكلم</h1><p>محاضرات صوتية وملفات وأسئلة تثبّت ما تعلمت في النحو والصرف والبلاغة والإملاء.</p><button class="primary" id="refreshBtn">تحديث المحاضرات <span>↻</span></button><div class="welcome-foot"><span>✎</span><span>لغتنا هويتنا</span></div></section>
+  <section class="welcome"><div class="welcome-art">ض</div><span class="eyebrow">محاضرات</span><h1>أتقِن النحو<br>بالضاد نتكلم</h1><p>محاضرات صوتية وملفات وأسئلة تثبّت ما تعلمت في النحو.</p><button class="primary" id="refreshBtn">تحديث المحاضرات <span>↻</span></button><div class="welcome-foot"><span>✎</span><span>لغتنا هويتنا</span></div></section>
   <section class="quote" id="quote" aria-live="polite"><div class="q-head">✎ من جمال لغتنا</div><p id="quoteText"></p></section>
   <div class="section-head"><div><span class="eyebrow">تعلّم على مهل</span><h2>المحاضرات</h2></div><span id="lessonCount" class="count">—</span></div>
   <div class="search-wrap"><span>⌕</span><input id="search" placeholder="ابحث في المحاضرات" autocomplete="off"></div>
   <div id="status" class="status"><span class="spinner"></span> جارٍ تحميل المحاضرات...</div>
   <section id="lessonList" class="lesson-list"></section>
-  <footer>بالضاد نتكلم — كورس اللغة العربية</footer>
+  <footer>بالضاد نتكلم — محاضرات النحو</footer>
 </main>
 <main id="quizView" class="hidden"></main>
 <nav class="bottom-nav"><button class="nav-item active" id="homeTab" aria-label="الرئيسية"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11.5 12 4l9 7.5"/><path d="M5.5 10v9.5h13V10"/><path d="M10 19.5v-5h4v5"/></svg></span>الرئيسية</button><button class="nav-item" id="quizTab" aria-label="الاختبارات"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2.5"/><path d="M9 4V3h6v1"/><path d="M8.5 13.2l2.4 2.4 4.6-5"/></svg><i class="badge hidden" id="quizBadge"></i></span>الاختبارات</button><button class="nav-item" id="accountTab" aria-label="حسابي"><span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.5" r="3.7"/><path d="M4.5 20c.8-4 4-6 7.5-6s6.7 2 7.5 6"/></svg></span>حسابي</button></nav>
